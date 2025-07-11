@@ -120,7 +120,7 @@ func forwardRequest(method, path string, headers http.Header, body []byte) (*htt
 		return nil, err
 	}
 	req.Header = headers.Clone()
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := &http.Client{}
 	return client.Do(req)
 }
 
@@ -129,8 +129,68 @@ func copyResponse(w http.ResponseWriter, resp *http.Response) error {
 		w.Header()[k] = v
 	}
 	w.WriteHeader(resp.StatusCode)
-	_, err := io.Copy(w, resp.Body)
-	return err
+
+	if isStreamingResponse(resp) {
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			log.Println("Response writer does not support flushing, cannot stream response.")
+			_, err := io.Copy(w, resp.Body)
+			return err
+		}
+		return streamResponse(w, resp.Body, flusher)
+	} else {
+		_, err := io.Copy(w, resp.Body)
+		return err
+	}
+}
+
+func isStreamingResponse(resp *http.Response) bool {
+	if contentType := resp.Header.Get("Content-Type"); strings.Contains(contentType, "text/event-stream") {
+		return true
+	}
+
+	if contentType := resp.Header.Get("Content-Type"); strings.Contains(contentType, "application/json") {
+		if resp.Header.Get("Transfer-Encoding") == "chunked" {
+			return true
+		}
+		if resp.Header.Get("X-Accel-Buffering") == "no" {
+			return true
+		}
+	}
+
+	if resp.Header.Get("Transfer-Encoding") == "chunked" {
+		return true
+	}
+
+	if resp.Header.Get("Cache-Control") == "no-cache" && resp.Header.Get("Connection") == "keep-alive" {
+		return true
+	}
+
+	return false
+}
+
+func streamResponse(w http.ResponseWriter, body io.ReadCloser, flusher http.Flusher) error {
+	buffer := make([]byte, 1024)
+
+	for {
+		n, err := body.Read(buffer)
+		if n > 0 {
+			if _, writeErr := w.Write(buffer[:n]); writeErr != nil {
+				return writeErr
+			}
+
+			flusher.Flush()
+
+			lastActivityTime = time.Now()
+		}
+
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
 }
 
 func startPod() {
