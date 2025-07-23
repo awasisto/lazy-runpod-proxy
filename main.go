@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"net"
@@ -17,12 +18,22 @@ var (
 	runpodApiKey         = os.Getenv("RUNPOD_API_KEY")
 	podId                = os.Getenv("POD_ID")
 	targetBaseUrl        = os.Getenv("TARGET_BASE_URL")
+	targetBaseWsUrl      string
 	podOrServiceStarting = false
 	podRunning           = true
 	inactivityLimit      = 20 * 60 * time.Second
 	startTimeLimit       = 5 * 60 * time.Second
 	retryInterval        = 5 * time.Second
 	lastActivityTime     time.Time
+
+	upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool {
+			return true
+		},
+	}
+	dialer = websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
 )
 
 func main() {
@@ -37,6 +48,9 @@ func main() {
 	if retryIntervalSeconds, err := strconv.Atoi(os.Getenv("RETRY_INTERVAL_SECONDS")); err == nil && retryIntervalSeconds > 0 {
 		retryInterval = time.Duration(retryIntervalSeconds) * time.Second
 	}
+
+	targetBaseWsUrl = strings.Replace(targetBaseUrl, "https://", "wss://", 1)
+	targetBaseWsUrl = strings.Replace(targetBaseWsUrl, "http://", "ws://", 1)
 
 	lastActivityTime = time.Now()
 
@@ -55,6 +69,11 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	lastActivityTime = time.Now()
 
 	log.Printf("Received %s %s from %s", r.Method, r.URL.Path, getRemoteAddress(r))
+
+	if isWebSocketRequest(r) {
+		proxyWebSocket(w, r)
+		return
+	}
 
 	var body []byte
 	if r.Body != nil {
@@ -191,6 +210,116 @@ func streamResponse(w http.ResponseWriter, body io.ReadCloser, flusher http.Flus
 			return err
 		}
 	}
+}
+
+func isWebSocketRequest(r *http.Request) bool {
+	return strings.ToLower(r.Header.Get("Connection")) == "upgrade" &&
+		strings.ToLower(r.Header.Get("Upgrade")) == "websocket"
+}
+
+func filterWebSocketHeaders(src http.Header) http.Header {
+	filtered := http.Header{}
+	skip := map[string]bool{
+		"Connection":               true,
+		"Upgrade":                  true,
+		"Sec-Websocket-Key":        true,
+		"Sec-Websocket-Version":    true,
+		"Sec-Websocket-Protocol":   true,
+		"Sec-Websocket-Extensions": true,
+	}
+
+	for k, v := range src {
+		if !skip[http.CanonicalHeaderKey(k)] {
+			filtered[k] = v
+		}
+	}
+
+	return filtered
+}
+
+func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
+	log.Printf("Attempting WebSocket connection to: %s", targetBaseWsUrl+r.URL.RequestURI())
+
+	clientConn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Printf("Failed to upgrade client connection: %v", err)
+		return
+	}
+	defer clientConn.Close()
+
+	log.Println("Client WebSocket upgrade successful")
+
+	filteredHeaders := filterWebSocketHeaders(r.Header)
+	log.Printf("WebSocket headers being forwarded: %v", filteredHeaders)
+
+	backendConn, resp, err := dialer.Dial(targetBaseWsUrl+r.URL.RequestURI(), filteredHeaders)
+	if err != nil {
+		log.Printf("WebSocket dial error: %v", err)
+		if resp != nil {
+			log.Printf("WebSocket dial response status: %d", resp.StatusCode)
+			log.Printf("WebSocket dial response headers: %v", resp.Header)
+
+			if resp.Body != nil {
+				body, readErr := io.ReadAll(resp.Body)
+				if readErr == nil {
+					log.Printf("WebSocket dial response body: %s", string(body))
+				}
+				resp.Body.Close()
+			}
+		} else {
+			log.Printf("WebSocket dial failed with no response - network error: %v", err)
+		}
+
+		clientConn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseInternalServerErr, "Backend connection failed"))
+		return
+	}
+	defer backendConn.Close()
+
+	log.Println("Backend WebSocket connection successful, starting message relay...")
+
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		for {
+			messageType, message, err := clientConn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Printf("Client read error: %v", err)
+				}
+				break
+			}
+
+			log.Printf("Relaying message from client to backend: type=%d, len=%d", messageType, len(message))
+
+			if err := backendConn.WriteMessage(messageType, message); err != nil {
+				log.Printf("Backend write error: %v", err)
+				break
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			messageType, message, err := backendConn.ReadMessage()
+			if err != nil {
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+					log.Printf("Backend read error: %v", err)
+				}
+				break
+			}
+
+			log.Printf("Relaying message from backend to client: type=%d, len=%d", messageType, len(message))
+
+			if err := clientConn.WriteMessage(messageType, message); err != nil {
+				log.Printf("Client write error: %v", err)
+				break
+			}
+		}
+	}()
+
+	<-done
+	log.Println("WebSocket proxy connection closed")
 }
 
 func startPod() {
