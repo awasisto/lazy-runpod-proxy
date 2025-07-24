@@ -1,8 +1,19 @@
 lazy-runpod-proxy
 =================
 
-lazy-runpod-proxy is a reverse proxy designed to sit in front of a RunPod pod. It starts the pod on-demand when a
-request is received and automatically stops it after a period of inactivity.
+lazy-runpod-proxy is an intelligent HTTP and WebSocket reverse proxy designed
+to sit in front of a [RunPod](https://www.runpod.io/) pod. It starts the pod
+on-demand when a request is received and automatically stops it after a period
+of inactivity to save costs.
+
+Features
+--------
+
+- Starts the pod on-demand when a request is received
+- Stops the pod after a period of inactivity
+- Periodically refreshes the pod to prevent it from becoming stale
+- HTTP and WebSocket support
+- Streaming response support
 
 Running
 -------
@@ -15,6 +26,7 @@ export TARGET_BASE_URL="https://xxxxx.proxy.runpod.net"
 export INACTIVITY_LIMIT_SECONDS=1200
 export START_TIME_LIMIT_SECONDS=300
 export RETRY_INTERVAL_SECONDS=5
+export PREVENT_STALE_POD="yes"
 export LISTEN_ADDRESS="0.0.0.0:8080"
 go run main.go
 ```
@@ -30,6 +42,7 @@ docker run -p 8080:8080 \
   -e INACTIVITY_LIMIT_SECONDS=1200 \
   -e START_TIME_LIMIT_SECONDS=300 \
   -e RETRY_INTERVAL_SECONDS=5 \
+  -e PREVENT_STALE_POD="yes" \
   -e LISTEN_ADDRESS="0.0.0.0:8080" \
   lazy-runpod-proxy
 ```

@@ -24,6 +24,7 @@ var (
 	inactivityLimit      = 20 * 60 * time.Second
 	startTimeLimit       = 5 * 60 * time.Second
 	retryInterval        = 5 * time.Second
+	preventStalePod      = true
 	lastActivityTime     time.Time
 
 	upgrader = websocket.Upgrader{
@@ -37,16 +38,50 @@ var (
 )
 
 func main() {
+	if runpodApiKey == "" {
+		log.Fatal("RUNPOD_API_KEY environment variable is not set")
+	}
+
+	if podId == "" {
+		log.Fatal("POD_ID environment variable is not set")
+	}
+
+	if targetBaseUrl == "" {
+		log.Fatal("TARGET_BASE_URL environment variable is not set")
+	}
+
 	if inactivityLimitSeconds, err := strconv.Atoi(os.Getenv("INACTIVITY_LIMIT_SECONDS")); err == nil && inactivityLimitSeconds > 0 {
 		inactivityLimit = time.Duration(inactivityLimitSeconds) * time.Second
+	} else {
+		log.Printf("Inactivity limit not set or invalid, using default (%d seconds)", inactivityLimitSeconds)
 	}
 
 	if startTimeLimitSeconds, err := strconv.Atoi(os.Getenv("START_TIME_LIMIT_SECONDS")); err == nil && startTimeLimitSeconds > 0 {
 		startTimeLimit = time.Duration(startTimeLimitSeconds) * time.Second
+	} else {
+		log.Printf("Start time limit not set or invalid, using default (%d seconds)", startTimeLimitSeconds)
 	}
 
 	if retryIntervalSeconds, err := strconv.Atoi(os.Getenv("RETRY_INTERVAL_SECONDS")); err == nil && retryIntervalSeconds > 0 {
 		retryInterval = time.Duration(retryIntervalSeconds) * time.Second
+	} else {
+		log.Printf("Retry interval not set or invalid, using default (%d seconds)", retryIntervalSeconds)
+	}
+
+	if strPreventStalePod := strings.ToLower(os.Getenv("PREVENT_STALE_POD")); strPreventStalePod != "" {
+		if strPreventStalePod == "1" || strPreventStalePod == "yes" || strPreventStalePod == "y" ||
+			strPreventStalePod == "true" || strPreventStalePod == "on" {
+
+			preventStalePod = true
+		} else if strPreventStalePod == "0" || strPreventStalePod == "no" || strPreventStalePod == "n" ||
+			strPreventStalePod == "false" || strPreventStalePod == "off" {
+
+			preventStalePod = false
+		} else {
+			log.Printf("PREVENT_STALE_POD set to an invalid value (%s), using default (true)", strPreventStalePod)
+		}
+	} else {
+		log.Printf("PREVENT_STALE_POD not set, using default (true)")
 	}
 
 	targetBaseWsUrl = strings.Replace(targetBaseUrl, "https://", "wss://", 1)
@@ -341,12 +376,21 @@ func stopPod(retries int) {
 func monitorInactivity() {
 	for {
 		time.Sleep(1 * time.Minute)
+
 		idle := time.Since(lastActivityTime)
+
 		if idle > inactivityLimit {
 			if podRunning {
 				log.Println("Stopping pod due to inactivity...")
 				stopPod(0)
 			}
+		}
+
+		if preventStalePod && idle > 6*24*time.Hour {
+			log.Println("Starting and stopping pod to prevent stale state...")
+			startPod()
+			time.Sleep(10 * time.Second)
+			stopPod(0)
 		}
 	}
 }
