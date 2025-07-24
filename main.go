@@ -68,12 +68,13 @@ func main() {
 func proxyHandler(w http.ResponseWriter, r *http.Request) {
 	lastActivityTime = time.Now()
 
-	log.Printf("Received %s %s from %s", r.Method, r.URL.Path, getRemoteAddress(r))
-
 	if isWebSocketRequest(r) {
+		log.Printf("Received %s %s from %s (WebSocket upgrade request)", r.Method, r.URL.Path, getRemoteAddress(r))
 		proxyWebSocket(w, r)
 		return
 	}
+
+	log.Printf("Received %s %s from %s", r.Method, r.URL.Path, getRemoteAddress(r))
 
 	var body []byte
 	if r.Body != nil {
@@ -238,8 +239,6 @@ func filterWebSocketHeaders(src http.Header) http.Header {
 }
 
 func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Attempting WebSocket connection to: %s", targetBaseWsUrl+r.URL.RequestURI())
-
 	clientConn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("Failed to upgrade client connection: %v", err)
@@ -247,12 +246,7 @@ func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer clientConn.Close()
 
-	log.Println("Client WebSocket upgrade successful")
-
-	filteredHeaders := filterWebSocketHeaders(r.Header)
-	log.Printf("WebSocket headers being forwarded: %v", filteredHeaders)
-
-	backendConn, resp, err := dialer.Dial(targetBaseWsUrl+r.URL.RequestURI(), filteredHeaders)
+	backendConn, resp, err := dialer.Dial(targetBaseWsUrl+r.URL.RequestURI(), filterWebSocketHeaders(r.Header))
 	if err != nil {
 		log.Printf("WebSocket dial error: %v", err)
 		if resp != nil {
@@ -275,8 +269,6 @@ func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer backendConn.Close()
 
-	log.Println("Backend WebSocket connection successful, starting message relay...")
-
 	done := make(chan struct{})
 
 	go func() {
@@ -289,8 +281,6 @@ func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
 				}
 				break
 			}
-
-			log.Printf("Relaying message from client to backend: type=%d, len=%d", messageType, len(message))
 
 			if err := backendConn.WriteMessage(messageType, message); err != nil {
 				log.Printf("Backend write error: %v", err)
@@ -309,8 +299,6 @@ func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 
-			log.Printf("Relaying message from backend to client: type=%d, len=%d", messageType, len(message))
-
 			if err := clientConn.WriteMessage(messageType, message); err != nil {
 				log.Printf("Client write error: %v", err)
 				break
@@ -319,7 +307,6 @@ func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	<-done
-	log.Println("WebSocket proxy connection closed")
 }
 
 func startPod() {
