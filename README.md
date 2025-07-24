@@ -9,12 +9,13 @@ Running
 
 ```bash
 go mod tidy
-export RUNPOD_API_KEY=your_api_key
-export POD_ID=your_pod_id
+export RUNPOD_API_KEY="your_api_key"
+export POD_ID="your_pod_id"
 export TARGET_BASE_URL="https://xxxxx.proxy.runpod.net"
 export INACTIVITY_LIMIT_SECONDS=1200
 export START_TIME_LIMIT_SECONDS=300
 export RETRY_INTERVAL_SECONDS=5
+export LISTEN_ADDRESS="0.0.0.0:8080"
 go run main.go
 ```
 
@@ -23,12 +24,13 @@ go run main.go
 ```bash
 docker build -t lazy-runpod-proxy .
 docker run -p 8080:8080 \
-  -e RUNPOD_API_KEY=your_api_key \
-  -e POD_ID=your_pod_id \
+  -e RUNPOD_API_KEY="your_api_key" \
+  -e POD_ID="your_pod_id" \
   -e TARGET_BASE_URL="https://xxxxx.proxy.runpod.net" \
   -e INACTIVITY_LIMIT_SECONDS=1200 \
   -e START_TIME_LIMIT_SECONDS=300 \
   -e RETRY_INTERVAL_SECONDS=5 \
+  -e LISTEN_ADDRESS="0.0.0.0:8080" \
   lazy-runpod-proxy
 ```
 

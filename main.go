@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	listenPort           = os.Getenv("LISTEN_PORT")
+	listenAddress        = os.Getenv("LISTEN_ADDRESS")
 	runpodApiKey         = os.Getenv("RUNPOD_API_KEY")
 	podId                = os.Getenv("POD_ID")
 	targetBaseUrl        = os.Getenv("TARGET_BASE_URL")
@@ -58,11 +58,11 @@ func main() {
 
 	http.HandleFunc("/", proxyHandler)
 
-	if listenPort == "" {
-		listenPort = "8080"
+	if listenAddress == "" {
+		listenAddress = "0.0.0.0:8080"
 	}
-	log.Printf("Listening on 0.0.0.0:%s...", listenPort)
-	log.Fatal(http.ListenAndServe("0.0.0.0:"+listenPort, nil))
+	log.Printf("Listening on %s", listenAddress)
+	log.Fatal(http.ListenAndServe(listenAddress, nil))
 }
 
 func proxyHandler(w http.ResponseWriter, r *http.Request) {

@@ -14,6 +14,4 @@ RUN apt update \
     && apt -y install ca-certificates \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-EXPOSE 8080
-
 CMD ["lazy-runpod-proxy"]
