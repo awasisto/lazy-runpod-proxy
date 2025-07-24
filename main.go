@@ -392,8 +392,8 @@ func monitorInactivity() {
 		if preventStalePod && idle > 6*24*time.Hour {
 			log.Println("Starting and stopping pod to prevent stale state...")
 			startPod()
-			time.Sleep(10 * time.Second)
 			stopPod(0)
+			lastActivityTime = time.Now()
 		}
 	}
 }
