@@ -14,7 +14,6 @@ import (
 )
 
 var (
-	listenAddress        = os.Getenv("LISTEN_ADDRESS")
 	runpodApiKey         = os.Getenv("RUNPOD_API_KEY")
 	podId                = os.Getenv("POD_ID")
 	targetBaseUrl        = os.Getenv("TARGET_BASE_URL")
@@ -25,6 +24,7 @@ var (
 	startTimeLimit       = 5 * 60 * time.Second
 	retryInterval        = 5 * time.Second
 	preventStalePod      = true
+	listenAddress        = "0.0.0.0:8080"
 	lastActivityTime     time.Time
 
 	upgrader = websocket.Upgrader{
@@ -49,6 +49,9 @@ func main() {
 	if targetBaseUrl == "" {
 		log.Fatal("TARGET_BASE_URL environment variable is not set")
 	}
+
+	targetBaseWsUrl = strings.Replace(targetBaseUrl, "https://", "wss://", 1)
+	targetBaseWsUrl = strings.Replace(targetBaseWsUrl, "http://", "ws://", 1)
 
 	if inactivityLimitSeconds, err := strconv.Atoi(os.Getenv("INACTIVITY_LIMIT_SECONDS")); err == nil && inactivityLimitSeconds > 0 {
 		inactivityLimit = time.Duration(inactivityLimitSeconds) * time.Second
@@ -84,8 +87,11 @@ func main() {
 		log.Printf("PREVENT_STALE_POD not set, using default (true)")
 	}
 
-	targetBaseWsUrl = strings.Replace(targetBaseUrl, "https://", "wss://", 1)
-	targetBaseWsUrl = strings.Replace(targetBaseWsUrl, "http://", "ws://", 1)
+	if listenAddressEnv := os.Getenv("LISTEN_ADDRESS"); listenAddressEnv != "" {
+		listenAddress = listenAddressEnv
+	} else {
+		log.Printf("LISTEN_ADDRESS not set, using default (%s)", listenAddress)
+	}
 
 	lastActivityTime = time.Now()
 
@@ -93,9 +99,6 @@ func main() {
 
 	http.HandleFunc("/", proxyHandler)
 
-	if listenAddress == "" {
-		listenAddress = "0.0.0.0:8080"
-	}
 	log.Printf("Listening on %s", listenAddress)
 	log.Fatal(http.ListenAndServe(listenAddress, nil))
 }
