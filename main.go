@@ -142,7 +142,7 @@ func proxyHandler(w http.ResponseWriter, r *http.Request) {
 				podOrServiceStarting = true
 				podRunning = false
 				log.Printf("Received %d from target - Pod is not running, starting pod...", resp.StatusCode)
-				startPod()
+				startPod(0)
 			} else {
 				log.Printf("Received %d from target - Pod is still starting, retrying...", resp.StatusCode)
 			}
@@ -347,14 +347,22 @@ func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
 	<-done
 }
 
-func startPod() {
+func startPod(retries int) {
 	req, _ := http.NewRequest("POST", "https://rest.runpod.io/v1/pods/"+podId+"/start", nil)
 	req.Header.Set("Authorization", "Bearer "+runpodApiKey)
 	client := &http.Client{}
 	_, err := client.Do(req)
 	if err != nil {
-		podOrServiceStarting = false
-		log.Println("Error starting pod:", err)
+		if retries < 3 {
+			log.Printf("Error starting pod, retrying (%d/3)...", retries+1)
+			time.Sleep(10 * time.Second)
+			startPod(retries + 1)
+			return
+		} else {
+			podOrServiceStarting = false
+			log.Println("Failed to start pod after multiple attempts:", err)
+			return
+		}
 	}
 }
 
@@ -391,7 +399,7 @@ func monitorInactivity() {
 
 		if preventStalePod && idle > 6*24*time.Hour {
 			log.Println("Starting and stopping pod to prevent stale state...")
-			startPod()
+			startPod(0)
 			stopPod(0)
 			lastActivityTime = time.Now()
 		}
