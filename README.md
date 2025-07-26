@@ -1,10 +1,11 @@
 lazy-runpod-proxy
 =================
 
-lazy-runpod-proxy is an intelligent HTTP and WebSocket reverse proxy designed
-to sit in front of a [RunPod](https://www.runpod.io/) pod. It starts the pod
-on-demand when a request is received and automatically stops it after a period
-of inactivity to save costs.
+Originally developed to reduce costs when running llama.cpp on a
+[RunPod](https://www.runpod.io/) pod, **lazy-runpod-proxy** is an
+intelligent HTTP and WebSocket reverse proxy designed to sit in front of a
+RunPod pod. It starts the pod on-demand when a request is received and
+automatically stops it after a period of inactivity to save costs.
 
 Features
 --------
